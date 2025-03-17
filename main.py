@@ -2,6 +2,7 @@ import asyncio
 from bleak import BleakClient, BleakScanner
 import json
 import csv
+from datetime import datetime
 
 SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
 CHARACTERISTIC_UUID = "abcd1234-5678-1234-5678-123456789abc"
@@ -15,7 +16,7 @@ def initialize_csv_files():
             headers = [
                 "mpu1_ax", "mpu1_ay", "mpu1_az", "mpu1_gx", "mpu1_gy", "mpu1_gz",
                 "mpu2_ax", "mpu2_ay", "mpu2_az", "mpu2_gx", "mpu2_gy", "mpu2_gz",
-                "HMC_x", "HMC_y", "HMC_z", "Heading_degrees"
+                "HMC_x", "HMC_y", "HMC_z", "Heading_degrees", "Date", "Time"
             ]
             writer.writerow(headers)
 
@@ -39,6 +40,10 @@ async def connect_and_listen(device_name, device_address, device_index):
                 decoded_data = data.decode()
                 sensor_data = json.loads(decoded_data)
 
+                now = datetime.now()
+                date_str = now.strftime("%Y-%m-%d")
+                time_str = now.strftime("%H:%M:%S")
+
                 row = [
                     sensor_data.get("mpu1", {}).get("ax", "N/A"),
                     sensor_data.get("mpu1", {}).get("ay", "N/A"),
@@ -55,11 +60,14 @@ async def connect_and_listen(device_name, device_address, device_index):
                     sensor_data.get("HMCx", "N/A"),
                     sensor_data.get("HMCy", "N/A"),
                     sensor_data.get("HMCz", "N/A"),
-                    sensor_data.get("Heading", "N/A")
+                    sensor_data.get("Heading", "N/A"),
+                    date_str,
+                    time_str
                 ]
 
                 append_to_csv(device_index, row)
-                print(f"{device_name} - Data written to esp{device_index}.csv.")
+
+                print(f"{device_name} - Data: {row}")
 
             except Exception as e:
                 print(f"{device_name} - Error processing data: {e}")
@@ -132,18 +140,6 @@ async def main():
 
     await asyncio.gather(*tasks)
 
-
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    print("\nProgram terminated.")
-
-    if esp5_devices:
-        for device in esp5_devices:
-            tasks.append(asyncio.create_task(connect_and_listen(device.name, device.address, 5)))
-            await asyncio.sleep(1)
-
-    await asyncio.gather(*tasks)
 
 try:
     asyncio.run(main())
