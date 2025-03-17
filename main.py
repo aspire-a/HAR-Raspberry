@@ -6,13 +6,14 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from threading import Thread
 
-
+# UUIDs for BLE service and characteristic
 SERVICE_UUID = "12345678-1234-1234-1234-123456789abc"
 CHARACTERISTIC_UUID = "abcd1234-5678-1234-5678-123456789abc"
 
+# Flask app initialization
 app = Flask(__name__)
 
-
+# Global state to store data from ESPs and activity
 global_data = {
     "esp1": None,
     "esp2": None,
@@ -20,10 +21,11 @@ global_data = {
     "esp4": None,
     "esp5": None
 }
-activity_data = None
-data_lock = asyncio.Lock()
+activity_data = None  # Global variable to store activity data
+data_lock = asyncio.Lock()  # For thread-safe access to global_data
 
 
+# Initialize CSV files for each ESP device and activity
 def initialize_csv_files():
     for i in range(1, 6):
         filename = f"esp{i}.csv"
@@ -36,13 +38,15 @@ def initialize_csv_files():
             ]
             writer.writerow(headers)
 
-
+    # Create activity.csv file
     with open("activity.csv", mode="w", newline="") as file:
         writer = csv.writer(file)
-        headers = ["activity_label", "activity_start_date", "activity_start_time", "activity_end_date", "activity_end_time"]
+        headers = ["activity_label", "activity_start_date", "activity_start_time", "activity_end_date",
+                   "activity_end_time"]
         writer.writerow(headers)
 
 
+# Append data to the respective CSV file
 def append_to_csv(device_index, data):
     filename = f"esp{device_index}.csv"
     with open(filename, mode="a", newline="") as file:
@@ -50,6 +54,7 @@ def append_to_csv(device_index, data):
         writer.writerow(data)
 
 
+# Append activity data to activity.csv
 def append_activity_to_csv(activity):
     with open("activity.csv", mode="a", newline="") as file:
         writer = csv.writer(file)
@@ -62,9 +67,11 @@ def append_activity_to_csv(activity):
         ])
 
 
+# Update global data asynchronously
 async def update_global_data(key, value):
     async with data_lock:
         global_data[key] = value
+
 
 async def connect_and_listen(device_name, device_address, device_index):
     while True:
@@ -121,6 +128,61 @@ async def connect_and_listen(device_name, device_address, device_index):
 
         await asyncio.sleep(5)
 
+
+def parse_datetime(date_str, time_str):
+    return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M:%S")
+
+
+def merge_esp_with_activity(esp_csv_path, activity_csv_path, categorized_csv_path):
+    """
+    1) Loads all activity ranges from activity_csv_path
+    2) Reads esp_csv_path and checks if each row's timestamp is within any activity's [start, end].
+    3) Writes matching rows to categorized_csv_path with an added 'activity_label' column.
+    """
+
+    # --- Step A: Read activity.csv into a list of (start_dt, end_dt, activity_label)
+    activities = []
+    with open(activity_csv_path, mode="r", newline="") as f_act:
+        reader = csv.DictReader(f_act)
+        for row in reader:
+            try:
+                start_dt = parse_datetime(row["activity_start_date"], row["activity_start_time"])
+                end_dt = parse_datetime(row["activity_end_date"], row["activity_end_time"])
+                label = row["activity_label"]
+                activities.append((start_dt, end_dt, label))
+            except Exception as e:
+                print("Error parsing activity row:", e)
+                continue
+
+    # --- Step B: Read the sensor CSV (espX.csv) and prepare to write to categorized_espX.csv
+    with open(esp_csv_path, mode="r", newline="") as f_esp, \
+            open(categorized_csv_path, mode="w", newline="") as f_out:
+
+        reader_esp = csv.DictReader(f_esp)
+        fieldnames = reader_esp.fieldnames + ["activity_label"]  # add the label column
+        writer_out = csv.DictWriter(f_out, fieldnames=fieldnames)
+        writer_out.writeheader()
+
+        for row in reader_esp:
+            try:
+                # Convert sensor's date/time
+                sensor_dt = parse_datetime(row["Date"], row["Time"])
+            except Exception as e:
+                print("Error parsing sensor row datetime:", e)
+                continue
+
+            # Check if sensor_dt fits into any of the activity intervals
+            matched_label = None
+            for (start_dt, end_dt, label) in activities:
+                if start_dt <= sensor_dt <= end_dt:
+                    matched_label = label
+                    break  # If you only want the first matching activity, break here
+
+            if matched_label is not None:
+                row["activity_label"] = matched_label
+                writer_out.writerow(row)
+
+
 async def main():
     initialize_csv_files()
 
@@ -163,12 +225,13 @@ async def main():
 
     await asyncio.gather(*tasks)
 
+
 @app.route('/data', methods=['GET'])
 def get_data():
     async def fetch_data():
         async with data_lock:
             formatted_data = {
-                f"ESP{i+1}": {
+                f"ESP{i + 1}": {
                     "MPU1": {
                         "ax": data[0], "ay": data[1], "az": data[2],
                         "gx": data[3], "gy": data[4], "gz": data[5]
@@ -190,12 +253,14 @@ def get_data():
     data = asyncio.run(fetch_data())
     return jsonify(data)
 
+
 @app.route('/activity', methods=['POST'])
 def post_activity():
     global activity_data
     try:
         data = request.json
-        required_keys = ["activity_label", "activity_start_date", "activity_start_time", "activity_end_date", "activity_end_time"]
+        required_keys = ["activity_label", "activity_start_date", "activity_start_time", "activity_end_date",
+                         "activity_end_time"]
 
         if not all(key in data for key in required_keys):
             return jsonify({"status": "error", "message": "Missing required keys."}), 400
@@ -212,14 +277,30 @@ def post_activity():
         append_activity_to_csv(activity_data)  # Write to activity.csv
 
         print("Activity data updated:", activity_data)
+
+        def do_merge_now():
+            try:
+                # Merge each espX.csv with the entire activity.csv
+                for i in range(1, 6):
+                    esp_file = f"esp{i}.csv"
+                    categorized_file = f"categorized_esp{i}.csv"
+                    merge_esp_with_activity(esp_file, "activity.csv", categorized_file)
+                print("Merging complete.")
+            except Exception as e:
+                print("Error in merging thread:", e)
+
+        Thread(target=do_merge_now, daemon=True).start()
+
         return jsonify({"status": "success", "updated_activity": activity_data}), 200
     except Exception as e:
         print("Error processing POST request for activity:", e)
         return jsonify({"status": "error", "message": str(e)}), 400
 
+
 # Flask server runner
 def run_flask():
     app.run(host="0.0.0.0", port=5000, debug=False)
+
 
 # Run Flask in a separate thread to avoid blocking the asyncio event loop
 flask_thread = Thread(target=run_flask, daemon=True)
