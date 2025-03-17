@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.idea/
+.venv/
+venv/
+
+esp*.csv
+categorized_esp*.csv

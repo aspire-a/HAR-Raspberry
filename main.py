@@ -105,13 +105,13 @@ async def connect_and_listen(device_name, device_address, device_index):
 
                         asyncio.create_task(update_global_data(f"esp{device_index}", row))
                         append_to_csv(device_index, row)
-                        print(f"{device_name} - Data written to esp{device_index}.csv.")
+                        # print(f"{device_name} - Data written to esp{device_index}.csv.")
 
                     except Exception as e:
                         print(f"{device_name} - Error processing data: {e}")
 
                 await client.start_notify(CHARACTERISTIC_UUID, notification_handler)
-                print(f"Listening to {device_name}... Press Ctrl+C to exit.")
+                # print(f"Listening to {device_name}... Press Ctrl+C to exit.")
 
                 while client.is_connected:
                     await asyncio.sleep(1)
@@ -285,7 +285,7 @@ def post_activity():
 
         append_activity_to_csv(activity_data)  # Write to activity.csv
 
-        print("Activity data updated:", activity_data)
+        # print("Activity data updated:", activity_data)
 
         def do_merge_now():
             try:
@@ -294,7 +294,7 @@ def post_activity():
                     esp_file = f"esp{i}.csv"
                     categorized_file = f"categorized_esp{i}.csv"
                     merge_esp_with_activity(esp_file, "activity.csv", categorized_file)
-                print("Merging complete.")
+                # print("Merging complete.")
             except Exception as e:
                 print("Error in merging thread:", e)
 
