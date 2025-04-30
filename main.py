@@ -4,6 +4,7 @@ import json
 import csv
 from datetime import datetime
 from flask import Flask, request, jsonify
+import logging
 from threading import Thread
 
 # UUIDs for BLE service and characteristic
@@ -111,7 +112,7 @@ async def connect_and_listen(device_name, device_address, device_index):
                         print(f"{device_name} - Error processing data: {e}")
 
                 await client.start_notify(CHARACTERISTIC_UUID, notification_handler)
-                # print(f"Listening to {device_name}... Press Ctrl+C to exit.")
+                print(f"Listening to {device_name}... Press Ctrl+C to exit.")
 
                 while client.is_connected:
                     await asyncio.sleep(1)
@@ -133,15 +134,8 @@ def parse_datetime(date_str, time_str):
 
 
 def merge_esp_with_activity(esp_csv_path, activity_csv_path, categorized_csv_path):
-    """
-    1) Loads all activity ranges from activity_csv_path
-    2) Reads esp_csv_path and checks if each row's timestamp is within any activity's [start, end].
-    3) Writes matching rows to categorized_csv_path with an added 'activity_label' column.
-    """
-
     from datetime import timedelta
 
-    # --- Step A: Read activity.csv into a list of (start_dt, end_dt, activity_label)
     activities = []
     with open(activity_csv_path, mode="r", newline="") as f_act:
         reader = csv.DictReader(f_act)
@@ -155,7 +149,6 @@ def merge_esp_with_activity(esp_csv_path, activity_csv_path, categorized_csv_pat
                 print("Error parsing activity row:", e)
                 continue
 
-    # --- Step B: Read the sensor CSV (espX.csv) and prepare to write to categorized_espX.csv
     with open(esp_csv_path, mode="r", newline="") as f_esp, \
          open(categorized_csv_path, mode="w", newline="") as f_out:
 
@@ -236,6 +229,8 @@ async def main():
             await asyncio.sleep(1)
 
     await asyncio.gather(*tasks)
+
+#logging.getLogger('werkzeug').setLevel(logging.ERROR) # Disables Flask logs
 
 @app.route('/data', methods=['GET'])
 def get_data():
